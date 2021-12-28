@@ -62,7 +62,7 @@
 struct_stack(int)
 
 struct word;
-typedef void (*forth_func)(struct word* wordlist, struct stackint *data);
+typedef void (*forth_func)(struct word** wordlist, struct stackint *data);
 
 struct word {
   char *word;
@@ -91,29 +91,38 @@ struct word* word_add(struct word *head, char *word, forth_func func) {
   return new_word;
 }
 
-void forth_add(struct word *head, struct stackint *data) {
+void forth_add(struct word **head, struct stackint *data) {
   int a = pop(data);
   int b = pop(data);
   push(data, a + b);
 }
 
-void forth_sub(struct word *head, struct stackint *data) {
+void forth_sub(struct word **head, struct stackint *data) {
   int a = pop(data);
   int b = pop(data);
-  push(data, b - a);
+  push(data, a - b);
 }
 
-forth_func find_word(struct word *head, char *word) {
+void forth_words(struct word **head, struct stackint *data) {
+  struct word *word = *head;
+  while(word != NULL) {
+    printf("%s ", word->word);
+    word = word->prev;
+  }
+  printf("\n");
+}
+
+struct word* find_word(struct word *head, char *word) {
   while(head != NULL) {
     if(strcmp(head->word, word) == 0) {
-      return head->func;
+      return head;
     }
     head = head->prev;
   }
   return NULL;
 }
 
-void forth_print_stack(struct word *head, struct stackint *data) {
+void forth_print_stack(struct word **head, struct stackint *data) {
   print_stack(data);
 }
 
@@ -128,14 +137,14 @@ void destroy_wordlist(struct word *head) {
 
 
 
-void forth_exit(struct word *head, struct stackint *data) {
+void forth_exit(struct word **head, struct stackint *data) {
   printf("Exiting...\n");
-  destroy_wordlist(head);
+  destroy_wordlist(*head);
   stackint_destroy(data);
   exit(0);
 }
 
-void forth_noop(struct word *head, struct stackint *data) {
+void forth_noop(struct word **head, struct stackint *data) {
   return;
 }
 
@@ -150,12 +159,25 @@ char* trim_newline(char *str) {
 int main(int argc, char *argv[]) {
   struct stackint *data = stackint_init();
   struct word *wordlist = NULL;
-
+    
   wordlist = word_add(wordlist, "+", forth_add);
   wordlist = word_add(wordlist, "-", forth_sub);
   wordlist = word_add(wordlist, ".", forth_print_stack);
-  wordlist = word_add(wordlist, "", forth_noop);
   wordlist = word_add(wordlist, "exit", forth_exit);
+  wordlist = word_add(wordlist, "words", forth_words);
+
+  struct word *test_plus_minus = malloc(sizeof(struct word));
+  test_plus_minus->word = "+-";
+  test_plus_minus->is_immediate = 0;
+  test_plus_minus->is_forth_defined = 1;
+  test_plus_minus->list = malloc(sizeof(forth_func) * 3);
+  test_plus_minus->list[0] = forth_add;
+  test_plus_minus->list[1] = forth_sub;
+  test_plus_minus->list[2] = 0;
+
+  test_plus_minus->prev = wordlist;
+  wordlist = test_plus_minus;
+  
 
   while (1) {
     READLINE(line);
@@ -167,9 +189,12 @@ int main(int argc, char *argv[]) {
 
     do {
       token = trim_newline(token);
-      forth_func func = find_word(wordlist, token);
+      if(strcmp(token, "") == 0) {
+        continue;
+      }
+      struct word *word = find_word(wordlist, token);
 
-      if(func == NULL) {
+      if(word == NULL) {
         if(token[0] >= '0' && token[0] <= '9') {
           int i = 1;
           for(; token[i] >= '0' && token[i] <= '9'; i++);
@@ -178,8 +203,15 @@ int main(int argc, char *argv[]) {
           printf("%s:%d:%s:%s: %s\n", __FILE__, __LINE__, __func__, "Unknown word", token);
           exit(1);
         }
+      } else if(word->is_forth_defined == 0) {
+        word->func(&wordlist, data);
+      } else if(word->is_forth_defined == 1) {
+        for(int i = 0; word->list[i] != NULL; i++) {
+          word->list[i](&wordlist, data);
+        }
       } else {
-        func(wordlist, data);
+        printf("%s:%d:%s:%s: %s\n", __FILE__, __LINE__, __func__, "Unknown word", token);
+        exit(1);
       }
     } while ((token = strtok(NULL, " ")));
     free(line);
